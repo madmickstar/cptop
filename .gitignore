@@ -1,3 +1,9 @@
+# my additions
+*.log
+*_old.py
+clean_build.bat
+input.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
