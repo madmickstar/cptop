@@ -72,7 +72,8 @@ def permissions(args):
     logger = logging.getLogger(__name__)
 
     input_dir = os.path.dirname(sys.argv[0])
-    input_file = os.path.join(input_dir, args.file)
+    input_file = os.path.join(input_dir, args.in_file)
+    output_file = os.path.join(input_dir, args.out_file)
     current_working_dir = os.getcwd()
     
     # test input file
@@ -81,6 +82,13 @@ def permissions(args):
             raise RuntimeError('Permissions check - Failed to read input file %s exiting....' % input_file)
         else:
             logger.debug('Input file exists and is readable %s', input_file)
+            
+    # test output file
+    if os.path.isfile(output_file):
+        if not check_read_file(output_file):
+            raise RuntimeError('Permissions check - Failed to read input file %s exiting....' % output_file)
+        else:
+            logger.debug('Input file exists and is readable %s', output_file)
        
     # test current dir
     if not check_write_dir(current_working_dir):
@@ -90,7 +98,7 @@ def permissions(args):
 
     logger.debug('Successfully passed all read write access tests')
 
-    return input_file, current_working_dir
+    return output_file, input_file, current_working_dir
 
 
 
