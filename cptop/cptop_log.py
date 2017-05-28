@@ -101,11 +101,11 @@ def create_ini(working_dir, logging_file, console_level="INFO"):
     formatter_* settings
     '''
     config.add_section('formatter_simple')
-    config.set('formatter_simple', 'format', "%(asctime)s - %(levelname)-8s - %(name)-10s - %(message)s")
+    config.set('formatter_simple', 'format', "%(levelname)-8s - %(name)-10s - %(message)s")
     config.set('formatter_simple', 'datefmt', "%Y-%m-%d %H:%M:%S")
     config.set('formatter_simple', 'class', "logging.Formatter")
     config.add_section('formatter_brief')
-    config.set('formatter_brief', 'format', "%(levelname)-8s : %(name)-10s : %(message)s")
+    config.set('formatter_brief', 'format', "%(message)s")
     config.set('formatter_brief', 'datefmt', "")
     config.set('formatter_brief', 'class', "logging.Formatter")
     config.add_section('formatter_precise')

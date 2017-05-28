@@ -149,18 +149,32 @@ class snmpengine:
         return self._hostname_type
 
     def _hostnameType(self):
+        #try:
+        #    socket.inet_aton(self.query_profile['Host'])
+        #    return "IP"
+        #except:
+        #    pass
+
+        allowed = re.compile("^(\d{1,3}\.){3}\d{1,3}$", re.IGNORECASE)
+        valid = allowed.match(self.query_profile['Host'])
+           
+        if valid:
+           allowed = re.compile("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$", re.IGNORECASE)   
+           valid = allowed.match(self.query_profile['Host'])
+           if valid:
+               return "IP"
+           else:
+               return None
+        else:
+           pass 
+        
         try:
-            socket.inet_aton(self.query_profile['Host'])
-            return "IP"
-        except:
-            pass
-        try:
-            valid = re.search('^([A-Za-z0-9-_]){1,63}$', self.query_profile['Host'], re.M|re.I)
+            valid = re.search('^([A-Za-z0-9-_]){1,255}$', self.query_profile['Host'], re.M|re.I)
             valid.group(1)
             return "HOSTNAME"
         except:
             pass
-        allowed = re.compile("(?!-)[A-Za-z0-9-_]{1,63}(?<!-)$", re.IGNORECASE)
+        allowed = re.compile("(?!-)[A-Za-z0-9-_]{1,255}(?<!-)$", re.IGNORECASE)
         if all(allowed.match(x) for x in self.query_profile['Host'].split(".")):
             return "FQDN"
         return None
