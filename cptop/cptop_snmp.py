@@ -4,10 +4,8 @@
 import os
 import sys
 import re
-import socket
-import dns.resolver     # import DNS functionality
-from codecs import open
 from pysnmp.entity.rfc3413.oneliner import cmdgen
+
 
 class snmpengine:
 
@@ -253,7 +251,7 @@ class snmpengine:
                                                        retries=self.q_repeat),
                                                        self.q_oid)
 
-        #print errorIndication, errorStatus, errorIndex, varBinds
+        print errorIndication, errorStatus, errorIndex, varBinds
 
         # Check for errors and print out results
         if errorIndication:

@@ -1,2 +1,9 @@
-pycrypto
-pysnmp
+ply>=3.9
+pycryptodome>=3.4.5
+pysmi>=0.1.2
+pysnmp>=4.3.5
+
+# pycrypto needs to be installed after pycrytodome
+# for some reason when bundled into py2exe if its installed before
+# it breaks the exe on some windows boxes i.e win2008R2
+pycrypto==2.6.1

@@ -20,8 +20,6 @@ import ConfigParser
 import argparse                                # import cli argument
 from argparse import RawTextHelpFormatter      # Formatting help
 
-from pysnmp.entity.rfc3413.oneliner import cmdgen
-
 
 
 def process_cli():
@@ -155,81 +153,81 @@ def check_host_is_alive(query_profile):
     return query_profile        
         
     
-def process_input(process_input):
-    '''
-    read in lines from CSV input file that do not start with #
-    '''
-    logger = logging.getLogger(__name__)
-    alive_hosts = []
-
-    with open(process_input, 'rb') as csvfile:
-        rdr = csv.reader(filter(lambda row: row[0]!='#', csvfile))
-        for row in rdr:
-            oid = None
-            timeout = None
-            retry = None
-            #oid = '1.3.6.1.2.1.1.5.0'
-            #timeout = 2
-            #retry = 1
-
-            if (len(row) < 3):
-                logger.error('%s arguments supplied from csv line %s', len(row), row)
-                logger.error('Expect min 3 arguments for SNMPv1 or 2, and min 7 for SNMPv3')
-                continue
-
-            if row[1] in ['1', '2']:
-                query_profile = {'Host': row[0],
-                                 'Version': row[1],
-                                 'Community': row[2],
-                                 'OID': oid,
-                                 'Timeout': timeout,
-                                 'Retry': retry}
-            else:
-                if (len(row) < 7):
-                    logger.error('Expecting min 7 arguments for SNMPv3, %s supplied from row %s', len(row), row)
-                    continue
-                query_profile = {'Host': row[0],
-                                 'Version': row[1],
-                                 'AuthKey': row[2],
-                                 'PrivKey': row[3],
-                                 'User': row[4],
-                                 'AuthProto': row[5],
-                                 'PrivProto': row[6],
-                                 'OID': oid,
-                                 'Timeout': timeout,
-                                 'Retry': retry}
-
-            logger.debug('Row is SNMPv%s %s', row[1], query_profile)
-            logger.info('Processing %s', query_profile['Host'])
-
-            try:
-                b = snmpengine(query_profile)
-            except Exception, err:
-                logger.error('Initialising host failed with an exception, skipping host')
-                logger.error('Error returned - %s', err)
-                continue
-
-            logger.debug('Checking %s is alive', query_profile['Host'])
-            try:
-                error, value = b.get_host()
-            except Exception, err:
-                logger.error('Checking host is alive failed with an exception, skipping host')
-                logger.error('Error returned - %s', err)
-                continue
-
-            if error:
-                #logger.info('SNMP Response Errors:- %s', value)
-                #continue
-                logger.error('Checking host is alive returned an error, skipping host')
-                logger.error('Error returned - %s', error)
-                continue
-
-            logger.info('Host is alive - %s', value)
-            query_profile['Hostname'] = value
-            #query_profile['Hostname'] = str(value)
-            alive_hosts.append(query_profile)
-
-    return alive_hosts
+#def process_input(process_input):
+#    '''
+#    read in lines from CSV input file that do not start with #
+#    '''
+#    logger = logging.getLogger(__name__)
+#    alive_hosts = []
+#
+#    with open(process_input, 'rb') as csvfile:
+#        rdr = csv.reader(filter(lambda row: row[0]!='#', csvfile))
+#        for row in rdr:
+#            oid = None
+#            timeout = None
+#            retry = None
+#            #oid = '1.3.6.1.2.1.1.5.0'
+#            #timeout = 2
+#            #retry = 1
+#
+#            if (len(row) < 3):
+#                logger.error('%s arguments supplied from csv line %s', len(row), row)
+#                logger.error('Expect min 3 arguments for SNMPv1 or 2, and min 7 for SNMPv3')
+#                continue
+#
+#            if row[1] in ['1', '2']:
+#                query_profile = {'Host': row[0],
+#                                 'Version': row[1],
+#                                 'Community': row[2],
+#                                 'OID': oid,
+#                                 'Timeout': timeout,
+#                                 'Retry': retry}
+#            else:
+#                if (len(row) < 7):
+#                    logger.error('Expecting min 7 arguments for SNMPv3, %s supplied from row %s', len(row), row)
+#                    continue
+#                query_profile = {'Host': row[0],
+#                                 'Version': row[1],
+#                                 'AuthKey': row[2],
+#                                 'PrivKey': row[3],
+#                                 'User': row[4],
+#                                 'AuthProto': row[5],
+#                                 'PrivProto': row[6],
+#                                 'OID': oid,
+#                                 'Timeout': timeout,
+#                                 'Retry': retry}
+#
+#            logger.debug('Row is SNMPv%s %s', row[1], query_profile)
+#            logger.info('Processing %s', query_profile['Host'])
+#
+#            try:
+#                b = snmpengine(query_profile)
+#            except Exception, err:
+#                logger.error('Initialising host failed with an exception, skipping host')
+#                logger.error('Error returned - %s', err)
+#                continue
+#
+#            logger.debug('Checking %s is alive', query_profile['Host'])
+#            try:
+#                error, value = b.get_host()
+#            except Exception, err:
+#                logger.error('Checking host is alive failed with an exception, skipping host')
+#                logger.error('Error returned - %s', err)
+#                continue
+#
+#            if error:
+#                #logger.info('SNMP Response Errors:- %s', value)
+#                #continue
+#                logger.error('Checking host is alive returned an error, skipping host')
+#                logger.error('Error returned - %s', error)
+#                continue
+#
+#            logger.info('Host is alive - %s', value)
+#            query_profile['Hostname'] = value
+#            #query_profile['Hostname'] = str(value)
+#            alive_hosts.append(query_profile)
+#
+#    return alive_hosts
 
 
 def index_hosts(dic):
@@ -245,8 +243,8 @@ def index_hosts(dic):
     oid_list.append('1.3.6.1.2.1.2.2.1.2')
     
     # testing OIDs
-    #oid_list.append('1.3.6.1.2.1.2.2.1.2')
-    #oid_list.append('1.3.6.1.2.1.2.2.1.2')
+#    oid_list.append('1.3.6.1.2.1.2.2.1.2')
+#    oid_list.append('1.3.6.1.2.1.2.2.1.2')
     counter = 0
     logger.debug('Indexing host %s', dic['Hostname'])
 
@@ -420,6 +418,11 @@ def main():
     The main entry point of the application
     '''
 
+#    # investigate thie def and line following it
+#    def handle_sigint(*args):
+#        raise SIGINTRecieved
+#    signal.signal(signal.SIGINT, handle_sigint)
+    
     working_dir = cptop_tools.process_working_dir()
 
     # process arguments from cli
