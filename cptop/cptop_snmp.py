@@ -5,6 +5,10 @@ import os
 import sys
 import re
 from pysnmp.entity.rfc3413.oneliner import cmdgen
+#from pysnmp import debug
+#
+## use specific flags or 'all' for full debugging
+#debug.setLogger(debug.Debug('dsp', 'msgproc', 'secmod'))
 
 
 class snmpengine:
@@ -251,7 +255,7 @@ class snmpengine:
                                                        retries=self.q_repeat),
                                                        self.q_oid)
 
-        print errorIndication, errorStatus, errorIndex, varBinds
+        #print errorIndication, errorStatus, errorIndex, varBinds
 
         # Check for errors and print out results
         if errorIndication:

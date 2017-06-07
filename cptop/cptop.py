@@ -4,21 +4,19 @@
 import sys
 import os
 import csv
+import logging
+import logging.config
+import logging.handlers
+import ConfigParser
+import argparse                                # import cli argument
+from argparse import RawTextHelpFormatter      # Formatting help
+from operator import itemgetter
 
 from _version import __version__
 import cptop_tools
 import cptop_log
 import cptop_input
 from cptop_snmp import snmpengine
-
-
-import logging
-import logging.config
-import logging.handlers
-import ConfigParser
-
-import argparse                                # import cli argument
-from argparse import RawTextHelpFormatter      # Formatting help
 
 
 
@@ -84,7 +82,7 @@ def profile_host(row):
             #logger.error('Expect min 3 arguments for SNMPv1 or 2, and min 7 for SNMPv3')
             raise ValueError("SNMPv%s expects minimum 3 arguments, %s detected" % (row[1], len(row)))
         
-        query_profile = {'Host': row[0],
+        query_profile = {'Host': row[0].lower(),
                          'Version': row[1],
                          'Community': row[2],
                          'OID': oid,
@@ -97,7 +95,7 @@ def profile_host(row):
             raise ValueError("SNMPv%s expects minimum 7 arguments, %s detected" % (row[1], len(row)))
             #return False
             
-        query_profile = {'Host': row[0],
+        query_profile = {'Host': row[0].lower(),
                          'Version': row[1],
                          'AuthKey': row[2],
                          'PrivKey': row[3],
@@ -146,89 +144,11 @@ def check_host_is_alive(query_profile):
         raise RuntimeError("%s, Error - %s" % (query_profile['Host'], value))
         #continue
 
-    logger.info('Host is alive - %s', value)
-    query_profile['Hostname'] = value
-    #query_profile['Hostname'] = str(value)
+    logger.info('Host is alive - %s', value.upper())
+    query_profile['Hostname'] = value.upper()
 
     return query_profile        
         
-    
-#def process_input(process_input):
-#    '''
-#    read in lines from CSV input file that do not start with #
-#    '''
-#    logger = logging.getLogger(__name__)
-#    alive_hosts = []
-#
-#    with open(process_input, 'rb') as csvfile:
-#        rdr = csv.reader(filter(lambda row: row[0]!='#', csvfile))
-#        for row in rdr:
-#            oid = None
-#            timeout = None
-#            retry = None
-#            #oid = '1.3.6.1.2.1.1.5.0'
-#            #timeout = 2
-#            #retry = 1
-#
-#            if (len(row) < 3):
-#                logger.error('%s arguments supplied from csv line %s', len(row), row)
-#                logger.error('Expect min 3 arguments for SNMPv1 or 2, and min 7 for SNMPv3')
-#                continue
-#
-#            if row[1] in ['1', '2']:
-#                query_profile = {'Host': row[0],
-#                                 'Version': row[1],
-#                                 'Community': row[2],
-#                                 'OID': oid,
-#                                 'Timeout': timeout,
-#                                 'Retry': retry}
-#            else:
-#                if (len(row) < 7):
-#                    logger.error('Expecting min 7 arguments for SNMPv3, %s supplied from row %s', len(row), row)
-#                    continue
-#                query_profile = {'Host': row[0],
-#                                 'Version': row[1],
-#                                 'AuthKey': row[2],
-#                                 'PrivKey': row[3],
-#                                 'User': row[4],
-#                                 'AuthProto': row[5],
-#                                 'PrivProto': row[6],
-#                                 'OID': oid,
-#                                 'Timeout': timeout,
-#                                 'Retry': retry}
-#
-#            logger.debug('Row is SNMPv%s %s', row[1], query_profile)
-#            logger.info('Processing %s', query_profile['Host'])
-#
-#            try:
-#                b = snmpengine(query_profile)
-#            except Exception, err:
-#                logger.error('Initialising host failed with an exception, skipping host')
-#                logger.error('Error returned - %s', err)
-#                continue
-#
-#            logger.debug('Checking %s is alive', query_profile['Host'])
-#            try:
-#                error, value = b.get_host()
-#            except Exception, err:
-#                logger.error('Checking host is alive failed with an exception, skipping host')
-#                logger.error('Error returned - %s', err)
-#                continue
-#
-#            if error:
-#                #logger.info('SNMP Response Errors:- %s', value)
-#                #continue
-#                logger.error('Checking host is alive returned an error, skipping host')
-#                logger.error('Error returned - %s', error)
-#                continue
-#
-#            logger.info('Host is alive - %s', value)
-#            query_profile['Hostname'] = value
-#            #query_profile['Hostname'] = str(value)
-#            alive_hosts.append(query_profile)
-#
-#    return alive_hosts
-
 
 def index_hosts(dic):
     '''
@@ -242,7 +162,7 @@ def index_hosts(dic):
     oid_list.append('1.3.6.1.4.1.2620.1.1.27.1.2')
     oid_list.append('1.3.6.1.2.1.2.2.1.2')
     
-    # testing OIDs
+#    # testing OIDs
 #    oid_list.append('1.3.6.1.2.1.2.2.1.2')
 #    oid_list.append('1.3.6.1.2.1.2.2.1.2')
     counter = 0
@@ -367,7 +287,7 @@ def get_int_details(dic, final_index_file):
         interface = {'HostName': dic['Hostname'],
                      'HostIP': dic['Host'],
                      'Index': i['Index_1'],
-                     'IntName': i['IntName']}
+                     'IntName': i['IntName'].lower()}
                      
         interface['IntIP'] = interface_gets[0]
         interface['IntSub'] = interface_gets[1]
@@ -405,8 +325,11 @@ def output_results(interface_details, output_file):
     '''
     logger = logging.getLogger(__name__)
 
+    # sort results by interface
+    sorted_interface_details = sorted(interface_details, key=itemgetter('IntName'))
+    
     with open(output_file, 'a') as f:
-        for i in interface_details:
+        for i in sorted_interface_details:
             f.write('%s, %s, %s, %s, %s, %s, %s, %s \n' % (i['HostName'], i['HostIP'], i['Index'],
                     i['Status'], i['IntName'], i['IntIP'], i['IntSub'], i['Alias']))
             logger.info('%s, %s, %s, %s, %s, %s, %s, %s', i['HostName'], i['HostIP'], i['Index'],
@@ -465,10 +388,13 @@ def main():
                 continue
                 
             #alive_hosts = process_input(input_file)
-
+    
+    # sort alove hosts by host
+    sorted_alive_hosts = sorted(alive_hosts, key=itemgetter('Host')) 
+    
     # collect details of interfaces from live hosts only
     output_header(output_file)
-    for dic in alive_hosts:
+    for dic in sorted_alive_hosts:
         try:
             final_index_file = index_hosts(dic)
             interface_details = get_int_details(dic, final_index_file)
