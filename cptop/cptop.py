@@ -4,6 +4,7 @@
 import sys
 import os
 import csv
+import time
 import logging
 import logging.config
 import logging.handlers
@@ -11,6 +12,7 @@ import ConfigParser
 import argparse                                # import cli argument
 from argparse import RawTextHelpFormatter      # Formatting help
 from operator import itemgetter
+from multiprocessing import Process, Queue, Lock, freeze_support, active_children
 
 from _version import __version__
 import cptop_tools
@@ -27,13 +29,18 @@ def process_cli():
         this assists when locating clients, servers and services when updating \n \
         firewall rules''',
     epilog='''Command line examples \n\n \
-        POSIX Users \n \
+        ## POSIX Users ## \n \
         python -m cptop \n \
         python -m cptop other/dir/input.txt \n \
          \n \
-        Windows Users \n \
+        ## Windows Users ## \n \
         python -m cptop \n \
-        python -m cptop other\\dir\\input.txt''',
+        python -m cptop other\\dir\\input.txt \n \
+        \n \
+        ## Frozen ##
+        cptop \n \
+        cptop other\\dir\\input.txt
+        ''',
     formatter_class=RawTextHelpFormatter)
 #    parser.add_argument('-wd', '--dir',
 #        default=working_dir,
@@ -50,6 +57,24 @@ def process_cli():
         type=str,
         metavar=('{filename}'),
         help='Input file name, default = input.txt')
+    parser.add_argument('-r', '--retry',
+        default='1',
+        type=int,
+        choices=range(1, 5),
+        metavar=('{1..5}'),
+        help='SNMP retries default = 1')
+    parser.add_argument('-t', '--timeout',
+        default='2',
+        type=int,
+        choices=[2, 4, 6, 8, 10],
+        metavar=('{2, 4, 6, 8, 10}'),
+        help='SNMP timeout in seconds default = 2')
+    parser.add_argument('-tm', '--timeout-multiplier',
+        default='4',
+        type=int,
+        choices=range(2, 10),
+        metavar=('{2..10}'),
+        help='Timeout multiplier, used to calculate looping timeout, default = 4')
     parser.add_argument('-d', '--debug',
         action="store_true",
         help='Enable debug output to console')
@@ -61,27 +86,23 @@ def process_cli():
     return args
 
 
-def profile_host(row):   
+def profile_host(row, args):
     '''
     map CSV input into dictionary in prep for SNMP query
     '''
     logger = logging.getLogger(__name__)
-    
+
     oid = None
-    timeout = None
-    retry = None
+    timeout = args.timeout
+    retry = args.retry
     #oid = '1.3.6.1.2.1.1.5.0'
     #timeout = 2
     #retry = 1
 
-
-
     if row[1] in ['1', '2']:
         if (len(row) < 3):
-            #logger.error('%s arguments supplied from csv line %s', len(row), row)
-            #logger.error('Expect min 3 arguments for SNMPv1 or 2, and min 7 for SNMPv3')
             raise ValueError("SNMPv%s expects minimum 3 arguments, %s detected" % (row[1], len(row)))
-        
+
         query_profile = {'Host': row[0].lower(),
                          'Version': row[1],
                          'Community': row[2],
@@ -90,11 +111,8 @@ def profile_host(row):
                          'Retry': retry}
     else:
         if (len(row) < 7):
-            #logger.error('Expecting min 7 arguments for SNMPv3, %s supplied from row %s', len(row), row)
-            #raise ValueError("Incorrect amount of arguments <3 detected")
             raise ValueError("SNMPv%s expects minimum 7 arguments, %s detected" % (row[1], len(row)))
-            #return False
-            
+
         query_profile = {'Host': row[0].lower(),
                          'Version': row[1],
                          'AuthKey': row[2],
@@ -106,49 +124,96 @@ def profile_host(row):
                          'Timeout': timeout,
                          'Retry': retry}
 
-    logger.info('Processing %s', query_profile['Host'])
-    logger.debug('%s', query_profile) 
+    logger.debug('%s', query_profile)
 
     return query_profile
-        
 
-def check_host_is_alive(query_profile):
+
+#def check_host_is_alive(query_profile):
+#    '''
+#    SNMP query host to see if alive
+#    '''
+#    logger = logging.getLogger(__name__)
+#
+#    try:
+#        b = snmpengine(query_profile)
+#    except Exception, err:
+#        logger.error('%s, Skipping host, initialising host failed with an exception', query_profile['Host'])
+#        raise
+#
+#    logger.debug('Checking %s is alive', query_profile['Host'])
+#    try:
+#        error, value = b.get_host()
+#    except Exception, err:
+#        logger.error('%s, Skipping host, checking host is alive failed with an exception', query_profile['Host'])
+#        raise
+#
+#    if error:
+#        logger.error('%s, Skipping host, checking host is alive failed with an error', query_profile['Host'])
+#        raise RuntimeError("%s, Error - %s" % (query_profile['Host'], value))
+#
+#
+#    logger.info('Host is alive - %s', value.upper())
+#    query_profile['Hostname'] = value.upper()
+#
+#    return query_profile
+
+
+def worker_live_host(jobs_queue, result_queue, lock):
     '''
-    SNMP query host to see if alive
+    Multiprocessing worker tests host's alive with SNMP GET of hostname
+    
+    Returns
+    Host profile via multiprocessing queue with addition of hostname added to dict
+
     '''
     logger = logging.getLogger(__name__)
-    
-    try:
-        b = snmpengine(query_profile)
-    except Exception, err:
-        logger.error('%s, Skipping host, initialising host failed with an exception', query_profile['Host'])
-        #logger.error('Error returned - %s', err)
-        raise
-        #continue
 
-    logger.debug('Checking %s is alive', query_profile['Host'])
+    results = []
+
+    # Process data in the jobs queue
+    job =jobs_queue.get()
+
+    # take that poison pill, yum yum yum yum yum
+    if job == None:
+        return
+
+    try:
+        b = snmpengine(job)
+    except Exception, err:
+        results.append('%s, Skipping host, initialising host failed with an exception' % job['Host'])
+        results.append("Error - %s " % err)
+        lock.acquire()
+        result_queue.put(results)
+        lock.release()
+        return
+
+    logger.debug('Checking %s is alive', job['Host'])
+
     try:
         error, value = b.get_host()
     except Exception, err:
-        logger.error('%s, Skipping host, checking host is alive failed with an exception', query_profile['Host'])
-        #logger.error('Error returned - %s', err)
-        raise
-        #continue
+        results.append('%s, Skipping host, checking host is alive failed with an exception' % job['Host'])
+        results.append("Error - %s " % err)
+        lock.acquire()
+        result_queue.put(results)
+        lock.release()
+        return
 
     if error:
-        #logger.info('SNMP Response Errors:- %s', value)
-        #continue
-        #logger.error('Checking host is alive returned an error, skipping host')
-        logger.error('%s, Skipping host, checking host is alive failed with an error', query_profile['Host'])
-        #logger.error('Error returned - %s', error)
-        raise RuntimeError("%s, Error - %s" % (query_profile['Host'], value))
-        #continue
+        results.append('%s did not respond, skipping host, returned error - %s' % (job['Host'], value))
+        #results.append("Error - %s %s" % (job['Host'], value))
+        lock.acquire()
+        result_queue.put(results)
+        lock.release()
+        return
 
-    logger.info('Host is alive - %s', value.upper())
-    query_profile['Hostname'] = value.upper()
+    job['Hostname'] = value.upper()
+    lock.acquire()
+    result_queue.put(job)
+    lock.release()
+    return
 
-    return query_profile        
-        
 
 def index_hosts(dic):
     '''
@@ -161,10 +226,10 @@ def index_hosts(dic):
     # final OIDs
     oid_list.append('1.3.6.1.4.1.2620.1.1.27.1.2')
     oid_list.append('1.3.6.1.2.1.2.2.1.2')
-    
-#    # testing OIDs
-#    oid_list.append('1.3.6.1.2.1.2.2.1.2')
-#    oid_list.append('1.3.6.1.2.1.2.2.1.2')
+
+    ## testing OIDs
+    #oid_list.append('1.3.6.1.2.1.2.2.1.2')
+    #oid_list.append('1.3.6.1.2.1.2.2.1.2')
     counter = 0
     logger.debug('Indexing host %s', dic['Hostname'])
 
@@ -175,36 +240,22 @@ def index_hosts(dic):
         try:
             b = snmpengine(dic)
         except Exception, err:
-            #logger.error('Initialising host failed with an exception, skipping host')
-            #logger.error('Error returned - %s', err)
-            #raise RuntimeError("%s, %s, Skipping host indexing interface failed when initalising host - %s" % (dic['Hostname'], dic['Host'], str(err)))
-            logger.error("%s, %s, Skipping host, initialising host before indexing interface returned an exception", dic['Hostname'], dic['Host'])
-            #raise RuntimeError("%s, %s, %s, Error - %s" % (dic['Hostname'], dic['Host'], dic['OID'], str(err)))
+            logger.error("%s, %s, indexing interface failed with an exception when initialising host", dic['Hostname'], dic['Host'])
             raise
-            #break
 
         logger.debug('Walking OID %s', dic['OID'])
         try:
             error, value = b.walk_host()
         except Exception, err:
-            #logger.error('Walking host failed with an exception, skipping host')
-            #logger.error('Error returned - %s', err)
-            logger.error("%s, %s, Skipping host, indexing interface returned an exception", dic['Hostname'], dic['Host'])
-            #raise RuntimeError("%s, %s, %s, Error - %s" % (dic['Hostname'], dic['Host'], dic['OID'], str(err)))
+            logger.error("%s, %s, indexing interface failed with an exception", dic['Hostname'], dic['Host'])
             raise
-            #break
 
         if error:
-            #logger.error('Walking host returned an error, skipping host')
-            logger.error("%s, %s, Skipping host, indexing interface returned an error", dic['Hostname'], dic['Host'])
-            raise RuntimeError("%s, %s, Error %s returned %s" % (dic['Hostname'], dic['Host'], dic['OID'], value))
-            #break
+            #logger.error("%s, %s, Skipping host, indexing interface returned an error", dic['Hostname'], dic['Host'])
+            raise RuntimeError("%s, %s, indexing interface failed with error %s returned %s" % (dic['Hostname'], dic['Host'], dic['OID'], value))
 
         if len(value) <= 0:
-            #logger.error('Indexing %s failed, %s returned empty result', dic['Host'], dic['OID'])
-            logger.error("%s, %s, Skipping host, indexing interface returned an error", dic['Hostname'], dic['Host'])
-            raise RuntimeError("%s, %s, Error %s returned empty result" % (dic['Hostname'], dic['Host'], dic['OID']))
-            #break
+            raise RuntimeError("%s, %s, indexing interface failed with blank result %s" % (dic['Hostname'], dic['Host'], dic['OID']))
 
         logger.debug('Successfully indexed loop %s oid %s', counter, dic['OID'])
 
@@ -250,12 +301,12 @@ def get_int_details(dic, final_index_file):
         oid_list.append('1.3.6.1.2.1.31.1.1.1.18.' + str(i['Index_2']))
         #intStatus
         oid_list.append('1.3.6.1.2.1.2.2.1.8.' + str(i['Index_2']))
-        
+
         # testing OIDs
 #        oid_list.append('1.3.6.1.2.1.2.2.1.4.' + str(i['Index_2']))
 #        oid_list.append('1.3.6.1.2.1.2.2.1.5.' + str(i['Index_2']))
 #        oid_list.append('1.3.6.1.2.1.2.2.1.6.' + str(i['Index_2']))
-#        oid_list.append('1.3.6.1.2.1.2.2.1.7.' + str(i['Index_2']))           
+#        oid_list.append('1.3.6.1.2.1.2.2.1.7.' + str(i['Index_2']))
         interface_gets = []
 
         for o in oid_list:
@@ -272,23 +323,22 @@ def get_int_details(dic, final_index_file):
             try:
                 error, value = b.get_host()
             except Exception, err:
-                logger.error('Get host failed with an exception, skipping host')
+                logger.error('Querying host interface details failed with an exception, skipping host')
                 logger.error('Error returned - %s', err)
                 break
 
             if error:
-                logger.error('Get host returned an error, skipping host')
+                logger.error('Querying host interface details failed with an error, skipping host')
                 logger.error('Error returned - %s', error)
                 break
 
             interface_gets.append(value)
 
-
         interface = {'HostName': dic['Hostname'],
                      'HostIP': dic['Host'],
                      'Index': i['Index_1'],
                      'IntName': i['IntName'].lower()}
-                     
+
         interface['IntIP'] = interface_gets[0]
         interface['IntSub'] = interface_gets[1]
         interface['Alias'] = interface_gets[2]
@@ -327,7 +377,7 @@ def output_results(interface_details, output_file):
 
     # sort results by interface
     sorted_interface_details = sorted(interface_details, key=itemgetter('IntName'))
-    
+
     with open(output_file, 'a') as f:
         for i in sorted_interface_details:
             f.write('%s, %s, %s, %s, %s, %s, %s, %s \n' % (i['HostName'], i['HostIP'], i['Index'],
@@ -341,11 +391,11 @@ def main():
     The main entry point of the application
     '''
 
-#    # investigate thie def and line following it
+#    # investigate this def and line following it
 #    def handle_sigint(*args):
 #        raise SIGINTRecieved
 #    signal.signal(signal.SIGINT, handle_sigint)
-    
+
     working_dir = cptop_tools.process_working_dir()
 
     # process arguments from cli
@@ -370,28 +420,93 @@ def main():
 
     # create input file
     cptop_input.main(input_file)
-    #alive_hosts = process_input(input_file)
+
+
+#####    # read in lines from CSV input file that do not start with #
+#####    alive_hosts = []
+#####    with open(input_file, 'rb') as csvfile:
+#####        rdr = csv.reader(filter(lambda row: row[0]!='#', csvfile))
+#####        for row in rdr:
+#####            try:
+#####                query_profile = profile_host(row, args)
+#####                query_profile = check_host_is_alive(query_profile)
+#####                alive_hosts.append(query_profile)
+#####            except Exception, err:
+#####                #logger.error('Skipping %s, host did not respond', query_profile['Host'])
+#####                logger.error(str(err))
+#####                continue
+
+
+    # I introduced multiprocessing for first SNMP GET only. Giving the ability to 
+    # kill the initial SNMP GET if bad values are supplied and it get stuck in 
+    # loop.
     
-    
-    # read in lines from CSV input file that do not start with #
     alive_hosts = []
+    profiles = []
     with open(input_file, 'rb') as csvfile:
         rdr = csv.reader(filter(lambda row: row[0]!='#', csvfile))
         for row in rdr:
             try:
-                query_profile = profile_host(row)
-                query_profile = check_host_is_alive(query_profile)
-                alive_hosts.append(query_profile)            
+                query_profile = profile_host(row, args)
             except Exception, err:
-                #logger.error('Skipping %s, host did not respond', query_profile['Host'])
                 logger.error(str(err))
                 continue
-                
-            #alive_hosts = process_input(input_file)
-    
-    # sort alove hosts by host
-    sorted_alive_hosts = sorted(alive_hosts, key=itemgetter('Host')) 
-    
+            profiles.append(query_profile)
+
+    logger.debug('%s' % profiles)
+
+    loop_timeout = args.timeout * args.timeout_multiplier
+    logger.debug('Loop timeout %s' % loop_timeout)
+    start = time.time()
+    ##========= Parent =========
+    jobs = Queue()
+    results = Queue()
+    lock = Lock()
+
+    ## create workers
+    procs = []
+    for prof in profiles:
+        logger.debug('Processing %s', prof['Host'])
+        p = Process(target=worker_live_host, args=(jobs, results, lock))
+        procs.append(p)
+        p.start()
+
+    ## Populate jobs queue
+    for j in profiles:
+        jobs.put(j)
+
+    ## Add Poison pill to the queue 
+    for _ in profiles:
+        jobs.put(None)
+
+    # Process output from each worker
+    # if any are stuck, terminate them
+    for p in procs: 
+        p.join(loop_timeout)
+        if p.is_alive():
+            logger.error("%s stuck in loop, most likly incorrect auth protocol" % prof['Host'])
+            p.terminate()
+            p.join()
+        else:
+            res = results.get()
+            logger.debug('Results queue length %s' % len(res))
+            # detect successfully polled hosts 
+            if len(res) > 4:
+                # add successful host to list
+                logger.info('Host is alive - %s', res['Hostname'])
+                alive_hosts.append(res)
+            else:
+                # print errors to screen
+                for r in res:
+                   logger.error('%s' % r)
+        logger.debug('Results in queue to print to screen %s' % results.qsize())
+                   
+    end = time.time() - start
+    logger.debug('Time it took to detect all alive hosts %s' % end)
+
+    # sort alive hosts by host
+    sorted_alive_hosts = sorted(alive_hosts, key=itemgetter('Host'))
+
     # collect details of interfaces from live hosts only
     output_header(output_file)
     for dic in sorted_alive_hosts:
@@ -404,4 +519,5 @@ def main():
 
 
 if __name__ == "__main__":
+    freeze_support()
     main()

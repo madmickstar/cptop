@@ -79,16 +79,16 @@ def permissions(args):
     # test input file
     if os.path.isfile(input_file):
         if not check_read_file(input_file):
-            raise RuntimeError('Permissions check - Failed to read input file %s exiting....' % input_file)
+            raise RuntimeError('Permissions check - Input file failed read test %s exiting....' % input_file)
         else:
             logger.debug('Input file exists and is readable %s', input_file)
             
     # test output file
     if os.path.isfile(output_file):
-        if not check_read_file(output_file):
-            raise RuntimeError('Permissions check - Failed to read input file %s exiting....' % output_file)
+        if not check_write_file(output_file):
+            raise RuntimeError('Permissions check - Output file failed write test %s exiting....' % output_file)
         else:
-            logger.debug('Input file exists and is readable %s', output_file)
+            logger.debug('Ouput file exists and is readable %s', output_file)
        
     # test current dir
     if not check_write_dir(current_working_dir):
@@ -99,7 +99,3 @@ def permissions(args):
     logger.debug('Successfully passed all read write access tests')
 
     return output_file, input_file, current_working_dir
-
-
-
-

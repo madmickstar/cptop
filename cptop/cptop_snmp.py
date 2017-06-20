@@ -12,12 +12,50 @@ from pysnmp.entity.rfc3413.oneliner import cmdgen
 
 
 class snmpengine:
-
+    '''
+    SNMP engine for performing SNMP get and walks
+    '''
     def __init__(self, query_profile):
-
+        
+        '''
+        query_profile = type = dictionary 
+        
+        ---------------------------
+        SNMPv1, v2, v3 common values
+        ---------------------------
+        Host - IP or DNS resolvable hostname
+        Version - v1, v2 or v3
+        OID - OID to query
+        Timeout - GET/WALK response timeout
+        Retry - Attempts till considered failed
+        
+        ----------------------
+        SNMPv1 and v2 specific
+        ----------------------
+        Community - SNMP community string
+        
+        ---------------------- 
+        SNMPv3 specific
+        ----------------------
+        User - Authentication username
+        AuthKey - Authentication string
+        AuthProto - Authentication protocol
+                '0':No HMAC
+                '1':HMAC MD5
+                '2':HMAC SHA
+        PrivKey - Privacy encryption string
+        PrivProto - Privacy encryption protocol
+                '0':No Privacy Encryption
+                '1':DES
+                '2':3DES
+                '3':AES128
+                '4':AES192
+                '5':AES256
+        '''
+        
         self.query_profile = query_profile
 
-        # setup and validate variables for common t oall versions of SNMP
+        # setup and validate items configurable by user
         try:
             self._validate_input()
         except:
@@ -26,7 +64,7 @@ class snmpengine:
         self.q_host = query_profile['Host']
         self.q_version = query_profile['Version']
 
-        # if values are set to None it sets them to default
+        # if values are set to None, set defaults
         if query_profile['OID'] is None:
             self.q_oid = '1.3.6.1.2.1.1.5.0'
         else:
@@ -46,43 +84,46 @@ class snmpengine:
         # v1 - mpModel=0, v2c - mpModel=1 (default)
         if self.q_version in ('1', '2'):
             self.q_community = query_profile['Community']
-            if self.q_version is '1':
+            if self.q_version == '1':
                 self.mpModel=0
             else:
                 self.mpModel=1
 
         # setup variables for SNMPv3
-        elif self.q_version is '3':
+        else:
             self.q_authkey = query_profile['AuthKey']
             self.q_privkey = query_profile['PrivKey']
             self.q_user = query_profile['User']
             self.authproto = query_profile['AuthProto']
             self.privproto = query_profile['PrivProto']
 
-            if self.authproto is '0':
+            if self.authproto == '0':
                 self.q_auth_proto = cmdgen.usmNoAuthProtocol
-            elif self.authproto is '1':
+            elif self.authproto == '1':
                 self.q_auth_proto = cmdgen.usmHMACMD5AuthProtocol
-            elif self.authproto is '2':
+            elif self.authproto == '2':
                 self.q_auth_proto = cmdgen.usmHMACSHAAuthProtocol
 
-            if self.privproto is '0':
+            if self.privproto == '0':
                 self.q_priv_proto = cmdgen.usmNoPrivProtocol
-            elif self.privproto is '1':
+            elif self.privproto == '1':
                 self.q_priv_proto = cmdgen.usmDESPrivProtocol
-            elif self.privproto is '2':
+            elif self.privproto == '2':
                 self.q_priv_proto = cmdgen.usm3DESEDEPrivProtocol
-            elif self.privproto is '3':
+            elif self.privproto == '3':
                 self.q_priv_proto = cmdgen.usmAesCfb128Protocol
-            elif self.privproto is '4':
+            elif self.privproto == '4':
                 self.q_priv_proto = cmdgen.usmAesCfb192Protocol
-            elif self.privproto is '5':
+            elif self.privproto == '5':
                 self.q_priv_proto = cmdgen.usmAesCfb256Protocol
 
-
-
     def _validate_input(self):
-
+        ''' 
+        Validate all input
+        
+        Raises ValueError if missing or fails validation
+          
+        '''
         # validate host
         if 'Host' not in self.query_profile:
             raise ValueError("Host missing from SNMP query")
@@ -146,30 +187,29 @@ class snmpengine:
             if self.query_profile['PrivProto'] not in ('0', '1', '2', '3', '4', '5'):
                 raise ValueError("Incorrect PrivProto value supplied %s, expecting 0-5" % self.query_profile['PrivProto'])
 
-
     def hostname_type(self):
+        ''' Returns Host type '''
         return self._hostname_type
 
     def _hostnameType(self):
-        #try:
-        #    socket.inet_aton(self.query_profile['Host'])
-        #    return "IP"
-        #except:
-        #    pass
-
+        ''' 
+        Validates Host and detects type
+        
+        Returns
+           IP, Hostname, FQDN or None (if unknown)
+        '''
         allowed = re.compile("^(\d{1,3}\.){3}\d{1,3}$", re.IGNORECASE)
         valid = allowed.match(self.query_profile['Host'])
-           
+
         if valid:
-           allowed = re.compile("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$", re.IGNORECASE)   
+           allowed = re.compile("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$", re.IGNORECASE)
            valid = allowed.match(self.query_profile['Host'])
            if valid:
                return "IP"
            else:
                return None
         else:
-           pass 
-        
+           pass
         try:
             valid = re.search('^([A-Za-z0-9-_]){1,255}$', self.query_profile['Host'], re.M|re.I)
             valid.group(1)
@@ -181,13 +221,85 @@ class snmpengine:
             return "FQDN"
         return None
 
+    def get_host(self):
+        ''' 
+        Triggers SNMP GET of supplied OID
+        
+        Returns 
+          error - true / false
+          value - SNMP response or error details
+        '''
+
+        self.get_error, self.get_value = self._get_host()
+        return self.get_error, self.get_value
+
+    def _get_host(self):
+        ''' 
+        SNMP GET of supplied OID
+
+        Returns 
+          error - true / false
+          value - SNMP response or error details
+        '''
+        cmdGen = cmdgen.CommandGenerator()
+        if self.q_version in ('1', '2'):
+            errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
+                cmdgen.CommunityData(self.q_community, mpModel=self.mpModel),
+                cmdgen.UdpTransportTarget((self.q_host, 161),
+                                          timeout=self.q_timeout,
+                                          retries=self.q_repeat),
+                                          self.q_oid)
+        else:
+            errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
+                             cmdgen.UsmUserData(self.q_user,
+                                                self.q_authkey,
+                                                self.q_privkey,
+                                                authProtocol=self.q_auth_proto,
+                                                privProtocol=self.q_priv_proto),
+                             cmdgen.UdpTransportTarget((self.q_host, 161),
+                                                       timeout=self.q_timeout,
+                                                       retries=self.q_repeat),
+                                                       self.q_oid)
+
+        #print errorIndication, errorStatus, errorIndex, varBinds
+
+        # Check for errors and print out results
+        if errorIndication:
+            self.r_error = True
+            self.r_value = errorIndication
+        else:
+            if errorStatus:
+                self.r_error = True
+                self.r_value = errorStatus.prettyPrint()
+            else:
+                for name, val in varBinds:
+                    self.r_error = False
+                    self.r_value = val.prettyPrint()
+
+        return self.r_error, self.r_value        
+        
     def walk_host(self):
+        ''' 
+        Triggers SNMP WALK of supplied OID
+
+        Returns 
+          error - true / false
+          value - SNMP response or error details
+        '''
         self.error, self.value = self._walk_host()
         return self.error, self.value
 
     def _walk_host(self):
+        ''' 
+        SNMP WALK of supplied OID
+
+        Returns 
+          error - true / false
+          value - SNMP response or error details
+        '''
+    
         cmdGen = cmdgen.CommandGenerator()
-        if self.q_version is not '3':
+        if self.q_version in ('1', '2'):
             errorIndication, errorStatus, errorIndex, varBinds = cmdGen.nextCmd(
                 cmdgen.CommunityData(self.q_community, mpModel=self.mpModel),
                 cmdgen.UdpTransportTarget((self.q_host, 161),
@@ -222,52 +334,12 @@ class snmpengine:
                 for varBindTableRow in varBinds:
                     for name, val in varBindTableRow:
                         index_dict = {'Index': name,
-                                      'Result': val.prettyPrint()} 
+                                      'Result': val.prettyPrint()}
                         self.r_value.append(index_dict)
-                        #print name[-1], self.r_value         
+                        #print name[-1], self.r_value
 
         return self.r_error, self.r_value
 
 
-        
-    def get_host(self):
-        self.get_error, self.get_value = self._get_host()
-        return self.get_error, self.get_value
 
-    def _get_host(self):
-        cmdGen = cmdgen.CommandGenerator()
-        if self.q_version is not '3':
-            errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
-                cmdgen.CommunityData(self.q_community, mpModel=self.mpModel),
-                cmdgen.UdpTransportTarget((self.q_host, 161),
-                                          timeout=self.q_timeout,
-                                          retries=self.q_repeat),
-                                          self.q_oid)
-        else:
-            errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
-                             cmdgen.UsmUserData(self.q_user,
-                                                self.q_authkey,
-                                                self.q_privkey,
-                                                authProtocol=self.q_auth_proto,
-                                                privProtocol=self.q_priv_proto),
-                             cmdgen.UdpTransportTarget((self.q_host, 161),
-                                                       timeout=self.q_timeout,
-                                                       retries=self.q_repeat),
-                                                       self.q_oid)
 
-        #print errorIndication, errorStatus, errorIndex, varBinds
-
-        # Check for errors and print out results
-        if errorIndication:
-            self.r_error = True
-            self.r_value = errorIndication
-        else:
-            if errorStatus:
-                self.r_error = True
-                self.r_value = errorStatus.prettyPrint()
-            else:
-                for name, val in varBinds:
-                    self.r_error = False
-                    self.r_value = val.prettyPrint()
-
-        return self.r_error, self.r_value
